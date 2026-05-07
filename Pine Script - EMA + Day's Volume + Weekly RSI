@@ -1,0 +1,124 @@
+//@version=5
+indicator("EMA + Day's Volume + Weekly RSI", overlay=true)
+
+// Variable to Get Average Volume Lengtn
+int avgLen = input.int(50, title="Average Volume Length")
+
+// --- Inputs ---
+ema_length = input.int(21, title="EMA Length")
+
+pos_color  = input.color(color.green, title="Criteria Met")
+neg_color  = input.color(color.red, title="Criteria Not Met")
+
+// --- Inputs For RSI---
+rsiLength = input.int(14, "RSI Length", minval=1)
+source = input.source(close, "Source")
+// --- RSI Logic ---
+// 1. Calculate the RSI locally (this will be used by request.security)
+currentRsi = ta.rsi(source, rsiLength)
+// 2. Fetch the RSI value from the Weekly timeframe
+// 'gaps=barmerge.gaps_off' ensures the line stays continuous
+weeklyRsi = math.round(request.security(syminfo.tickerid, "W", currentRsi, gaps=barmerge.gaps_off, lookahead=barmerge.lookahead_on))
+//weeklyRsi = math.round(weeklyRsi)
+string myRsiString = str.tostring(weeklyRsi)
+
+// Code Starts --> Displaying Current Day's Volume
+// --- USER DEFINED FUNCTION (UDF) ---
+// This function takes any number and returns a string in Indian format
+formatIndian(float num) =>
+    string s = str.tostring(math.floor(num), "#")
+    int len = str.length(s)
+    string res = ""
+    
+    if len <= 3
+        res := s
+    else
+        // Extract the last 3 digits
+        res := "," + str.substring(s, len - 3)
+        // Process the rest in pairs of 2
+        string remaining = str.substring(s, 0, len - 3)
+        int remLen = str.length(remaining)
+        
+        for i = remLen to 1 by 2
+            int start = i - 2
+            if start >= 0
+                res := (start == 0 ? "" : ",") + str.substring(remaining, start, i) + res
+            else
+                // Handle single leading digit (e.g., the '1' in 1,00,000)
+                res := str.substring(remaining, 0, 1) + res
+    
+    // Add the Rupee symbol and return the final string
+    " " + res
+// --- MAIN EXECUTION ---
+
+// 1. Get the daily volume
+daily_vol = request.security(syminfo.tickerid, "D", volume)
+
+// 2. Call your custom function
+string formattedValue = formatIndian(daily_vol)
+
+// 3. Display using a label
+var label volLabel = label.new(bar_index, high, text="", color=color.new(color.blue, 20), textcolor=color.white, style=label.style_label_down)
+
+//if barstate.islast
+//    label.set_xy(volLabel, bar_index, high)
+//    label.set_text(volLabel, "Today Volume :\n" + formattedValue)
+// Clde Ends -- > Displaying Current Day's Volume
+
+// --- Calculations: EMA Status ---
+// We use a simple security call for Daily, Weekly, Monthly
+d_ema = request.security(syminfo.tickerid, "D", ta.ema(close, ema_length))
+d_price = request.security(syminfo.tickerid, "D", close)
+
+w_ema = request.security(syminfo.tickerid, "W", ta.ema(close, ema_length))
+w_price = request.security(syminfo.tickerid, "W", close)
+
+m_ema = request.security(syminfo.tickerid, "M", ta.ema(close, ema_length))
+m_price = request.security(syminfo.tickerid, "M", close)
+
+is_daily_bull   = d_price > d_ema
+is_weekly_bull  = w_price > w_ema
+is_monthly_bull = m_price > m_ema
+
+// Variables For RVolume
+vol_avg = ta.sma(volume, avgLen)
+rvol = volume / vol_avg
+
+// --- Dashboard UI ---
+var table status_table = table.new(position.top_right, 3, 7, border_width = 1, border_color=color.rgb(120, 123, 134, 91))
+
+if barstate.islast
+    // Header
+    table.cell(status_table, 0, 0, "Metric", bgcolor=color.black, text_color=color.white)
+    table.cell(status_table, 1, 0, "Status/Value", bgcolor=color.black, text_color=color.white)
+    table.cell(status_table, 2, 0, "         ", bgcolor=color.white, text_color=color.white)
+    
+    // Daily
+    table.cell(status_table, 0, 1, "Daily > 21EMA", text_color=color.gray)
+    table.cell(status_table, 1, 1, is_daily_bull ? "Above" : "Below", bgcolor = is_daily_bull ? pos_color : neg_color, text_color=color.white)
+    table.cell(status_table, 2, 1, "         ", bgcolor=color.white, text_color=color.white)
+
+    // Weekly
+    table.cell(status_table, 0, 2, "Weekly > 21EMA", text_color=color.gray)
+    table.cell(status_table, 1, 2, is_weekly_bull ? "Above" : "Below", bgcolor = is_weekly_bull ? pos_color : neg_color, text_color=color.white)
+    table.cell(status_table, 2, 2, "         ", bgcolor=color.white, text_color=color.white)
+    
+    // Monthly
+    table.cell(status_table, 0, 3, "Monthly > 21EMA", text_color=color.gray)
+    table.cell(status_table, 1, 3, is_monthly_bull ? "Above" : "Below", bgcolor = is_monthly_bull ? pos_color : neg_color, text_color=color.white)
+    table.cell(status_table, 2, 3, "         ", bgcolor=color.white, text_color=color.white)
+    
+    // Replacing With Today's Volume 
+    table.cell(status_table, 0, 4, "Today's Volume", text_color=color.gray)
+    table.cell(status_table, 1, 4, formattedValue, text_color=color.blue)
+    table.cell(status_table, 2, 4, "         ", bgcolor=color.white, text_color=color.white)
+
+    // RSI
+    table.cell(status_table, 0, 5, "Weekly RSI", text_color=color.gray)
+    table.cell(status_table, 1, 5, myRsiString, text_color=color.blue)
+    table.cell(status_table, 2, 5, "         ", bgcolor=color.white, text_color=color.white)
+
+    //RVolume
+    table.cell(status_table, 0, 6, "RVOL (" + str.tostring(avgLen) + ")", text_color =color.gray)
+    table.cell(status_table, 1, 6, str.tostring(rvol, "#.##") + " Times", bgcolor=rvol > 1 ? color.new(color.green, 50) : color.new(color.red, 50), text_color=color.blue, text_halign=text.align_center)    
+    table.cell(status_table, 2, 6, "         ", bgcolor=color.white, text_color=color.white)
